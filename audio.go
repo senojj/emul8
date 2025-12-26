@@ -1,14 +1,13 @@
-package chip8
+package emul8
 
 import (
 	"context"
-	"log"
-	"sync"
 	"sync/atomic"
 
 	"github.com/go-audio/audio"
 	"github.com/go-audio/generator"
 	"github.com/gordonklaus/portaudio"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -21,7 +20,7 @@ var (
 )
 
 type Beep struct {
-	wg      sync.WaitGroup
+	g       errgroup.Group
 	beeping atomic.Bool
 }
 
@@ -44,7 +43,7 @@ func (b *Beep) Start(ctx context.Context) error {
 	osc := generator.NewOsc(generator.WaveSine, note, buffer.Format.SampleRate)
 	osc.Amplitude = 1
 
-	b.wg.Go(func() {
+	b.g.Go(func() error {
 		defer func() {
 			_ = portaudio.Terminate()
 		}()
@@ -53,14 +52,14 @@ func (b *Beep) Start(ctx context.Context) error {
 
 		stream, err := portaudio.OpenDefaultStream(0, 1, 44100, len(out), &out)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		defer func() {
 			_ = stream.Close()
 		}()
 
 		if err := stream.Start(); err != nil {
-			log.Fatal(err)
+			return err
 		}
 		defer func() {
 			_ = stream.Stop()
@@ -68,26 +67,28 @@ func (b *Beep) Start(ctx context.Context) error {
 
 		for b.beeping.Load() && ctx.Err() == nil {
 			if err := osc.Fill(buffer); err != nil {
-				log.Printf("error filling up the buffer")
+				return err
 			}
 
 			f64Tof32(out, buffer.Data)
 
 			if err := stream.Write(); err != nil {
-				log.Printf("error writing to stream: %v\n", err)
+				return err
 			}
 		}
+
+		return nil
 	})
 
 	return nil
 }
 
-func (b *Beep) Stop() {
+func (b *Beep) Stop() error {
 	if !b.beeping.Load() {
-		return
+		return nil
 	}
 	b.beeping.Store(false)
-	b.wg.Wait()
+	return b.g.Wait()
 }
 
 func f64Tof32(dst []float32, src []float64) {
