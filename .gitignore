@@ -1,2 +1,4 @@
 *.ch8
 emul8
+/bin
+/roms
