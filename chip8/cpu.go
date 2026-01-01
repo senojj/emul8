@@ -6,7 +6,10 @@ import (
 )
 
 const (
+	RegisterCount       = 16
+	KeyCount            = 16
 	FontStartAddress    = 0x50
+	LastAddress         = 0xFFE
 	ProgramStartAddress = 0x200
 	CarryFlag           = 0xF
 
@@ -50,8 +53,8 @@ type node struct {
 
 type processor struct {
 	memory          [4096]byte
-	v               [16]byte
-	keyState        [16]atomic.Bool
+	v               [RegisterCount]byte
+	keyState        [KeyCount]atomic.Bool
 	display         [Area]byte
 	stack           *node
 	pc              uint16
@@ -166,9 +169,9 @@ func ProgramCounter() uint16 {
 	return cpu.pc
 }
 
-func Opcode() uint16 {
+func Opcode(offset uint16) uint16 {
 	var buffer [2]byte
-	read := Read(cpu.pc, buffer[:])
+	read := Read(offset, buffer[:])
 	if read < 2 {
 		panic("program runaway")
 	}
@@ -183,7 +186,7 @@ func Opcode() uint16 {
 func Step() uint8 {
 	var info uint8
 
-	opcode := Opcode()
+	opcode := Opcode(cpu.pc)
 
 	cpu.pc += 2
 

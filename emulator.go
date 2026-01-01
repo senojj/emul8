@@ -3,6 +3,7 @@ package emul8
 import (
 	"context"
 	"emul8/chip8"
+	"fmt"
 	"image"
 	"image/color"
 	"sync"
@@ -12,7 +13,10 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/widget"
 )
 
 var keyMap = map[fyne.KeyName]uint8{
@@ -62,7 +66,34 @@ func (e *Emulator) Run() {
 	canv.SetOnKeyDown(e.onKeyDown)
 	canv.SetOnKeyUp(e.onKeyUp)
 
-	w.SetContent(image)
+	items := make([]string, 0, chip8.LastAddress-chip8.ProgramStartAddress)
+
+	for i := chip8.ProgramStartAddress; i < chip8.LastAddress; i += 2 {
+		opcode := chip8.Opcode(uint16(i))
+		if opcode == 0x000 {
+			break
+		}
+		text := fmt.Sprintf("%04x", opcode)
+		items = append(items, text)
+	}
+
+	data := binding.BindStringList(&items)
+
+	list := widget.NewListWithData(
+		data,
+		func() fyne.CanvasObject {
+			return widget.NewLabel("template")
+		},
+		func(di binding.DataItem, obj fyne.CanvasObject) {
+			s, _ := di.(binding.String).Get()
+			obj.(*widget.Label).SetText(s)
+		},
+	)
+
+	box := container.NewBorder(nil, nil, list, nil, image)
+
+	w.SetContent(box)
+
 	w.Resize(fyne.NewSize(float32(chip8.Width*10), float32(chip8.Height*10))) // 10x scale for visibility
 
 	e.running.Store(true)
@@ -83,6 +114,8 @@ func (e *Emulator) Run() {
 			}
 
 			info := chip8.Step()
+
+			pos := chip8.ProgramCounter() - chip8.ProgramStartAddress
 
 			redraw := (info & chip8.Redraw) != 0
 			sound := (info & chip8.Sound) != 0
@@ -108,6 +141,9 @@ func (e *Emulator) Run() {
 				})
 			}
 
+			fyne.Do(func() {
+				list.Select(widget.ListItemID(pos))
+			})
 		}
 	})
 
