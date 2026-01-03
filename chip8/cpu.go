@@ -6,12 +6,12 @@ import (
 )
 
 const (
-	RegisterCount       = 16
-	KeyCount            = 16
-	FontStartAddress    = 0x50
-	LastAddress         = 0xFFE
-	ProgramStartAddress = 0x200
-	CarryFlag           = 0xF
+	RegisterCount       int    = 16
+	KeyCount            int    = 16
+	FontStartAddress    uint16 = 0x50
+	LastAddress         uint16 = 0xFFE
+	ProgramStartAddress uint16 = 0x200
+	CarryFlag           uint8  = 0xF
 
 	TimerRate time.Duration = time.Second / 60  // 60hz
 	ClockRate time.Duration = time.Second / 700 // 700hz
@@ -26,6 +26,8 @@ const (
 	Sound
 	Redraw
 )
+
+var buffer [2]byte
 
 var fontSet = []byte{
 	0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -127,6 +129,7 @@ func Load(b []byte) {
 	if int(written) < len(b) {
 		panic("insufficient memory")
 	}
+	cpu.pc = ProgramStartAddress
 }
 
 func SetKey(key uint8, value bool) {
@@ -170,7 +173,6 @@ func ProgramCounter() uint16 {
 }
 
 func Opcode(offset uint16) uint16 {
-	var buffer [2]byte
 	read := Read(offset, buffer[:])
 	if read < 2 {
 		panic("program runaway")

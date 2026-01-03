@@ -67,21 +67,12 @@ func (e *Emulator) Run() {
 	canv.SetOnKeyDown(e.onKeyDown)
 	canv.SetOnKeyUp(e.onKeyUp)
 
-	items := make([]string, 0, chip8.LastAddress-chip8.ProgramStartAddress)
+	data := make([]string, 0)
 
-	for i := chip8.ProgramStartAddress; i < chip8.LastAddress; i += 2 {
-		opcode := chip8.Opcode(uint16(i))
-		if opcode == 0x000 {
-			break
-		}
-		text := fmt.Sprintf("%04x", opcode)
-		items = append(items, text)
-	}
-
-	data := binding.BindStringList(&items)
+	bound := binding.BindStringList(&data)
 
 	list := widget.NewListWithData(
-		data,
+		bound,
 		func() fyne.CanvasObject {
 			return widget.NewLabel("template")
 		},
@@ -124,6 +115,8 @@ func (e *Emulator) Run() {
 		cpuTicker := time.NewTicker(chip8.ClockRate)
 		defer cpuTicker.Stop()
 
+		var ctr int
+
 		for range cpuTicker.C {
 			if !e.running.Load() {
 				break
@@ -136,9 +129,28 @@ func (e *Emulator) Run() {
 				next.Store(false)
 			}
 
-			info := chip8.Step()
+			if ctr < 1 {
+				opcode := chip8.Opcode(chip8.ProgramCounter())
+				opstr := fmt.Sprintf("%04X", opcode)
 
-			pos := (chip8.ProgramCounter() - chip8.ProgramStartAddress) / 2
+				data = append([]string{opstr}, data...)
+				ctr++
+			}
+
+			if chip8.ProgramCounter()+2 <= chip8.LastAddress {
+				opcode := chip8.Opcode(chip8.ProgramCounter() + 2)
+				opstr := fmt.Sprintf("%04X", opcode)
+
+				data = append([]string{opstr}, data...)
+			}
+
+			if len(data) > 10 {
+				data = data[:10]
+			}
+
+			_ = bound.Reload()
+
+			info := chip8.Step()
 
 			redraw := (info & chip8.Redraw) != 0
 			sound := (info & chip8.Sound) != 0
@@ -165,7 +177,9 @@ func (e *Emulator) Run() {
 			}
 
 			fyne.Do(func() {
-				list.Select(widget.ListItemID(pos))
+				list.Select(widget.ListItemID(1))
+				list.ScrollToTop()
+				list.Refresh()
 			})
 		}
 	})
