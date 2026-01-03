@@ -168,6 +168,11 @@ func DrawSprite(x, y, h byte) {
 	}
 }
 
+func Register(v uint8) byte {
+	key := v & 0xF
+	return cpu.v[key]
+}
+
 func ProgramCounter() uint16 {
 	return cpu.pc
 }

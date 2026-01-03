@@ -67,12 +67,31 @@ func (e *Emulator) Run() {
 	canv.SetOnKeyDown(e.onKeyDown)
 	canv.SetOnKeyUp(e.onKeyUp)
 
-	data := make([]string, 0)
+	opcodeData := make([]string, 0)
 
-	bound := binding.BindStringList(&data)
+	boundOpcodes := binding.BindStringList(&opcodeData)
 
-	list := widget.NewListWithData(
-		bound,
+	opcodeList := widget.NewListWithData(
+		boundOpcodes,
+		func() fyne.CanvasObject {
+			return widget.NewLabel("template")
+		},
+		func(di binding.DataItem, obj fyne.CanvasObject) {
+			s, _ := di.(binding.String).Get()
+			obj.(*widget.Label).SetText(s)
+		},
+	)
+
+	registerData := make([]string, chip8.RegisterCount)
+
+	boundRegisters := binding.BindStringList(&registerData)
+
+	for i := uint8(0); i <= 0xF; i++ {
+		registerData[i] = fmt.Sprintf("V%X: %04X", i, chip8.Register(i))
+	}
+
+	registerList := widget.NewListWithData(
+		boundRegisters,
 		func() fyne.CanvasObject {
 			return widget.NewLabel("template")
 		},
@@ -97,7 +116,7 @@ func (e *Emulator) Run() {
 		}),
 	)
 
-	box := container.NewBorder(toolbar, nil, list, nil, image)
+	box := container.NewBorder(toolbar, nil, opcodeList, registerList, image)
 
 	w.SetContent(box)
 
@@ -133,7 +152,7 @@ func (e *Emulator) Run() {
 				opcode := chip8.Opcode(chip8.ProgramCounter())
 				opstr := fmt.Sprintf("%04X", opcode)
 
-				data = append([]string{opstr}, data...)
+				opcodeData = append([]string{opstr}, opcodeData...)
 				ctr++
 			}
 
@@ -141,14 +160,20 @@ func (e *Emulator) Run() {
 				opcode := chip8.Opcode(chip8.ProgramCounter() + 2)
 				opstr := fmt.Sprintf("%04X", opcode)
 
-				data = append([]string{opstr}, data...)
+				opcodeData = append([]string{opstr}, opcodeData...)
 			}
 
-			if len(data) > 10 {
-				data = data[:10]
+			if len(opcodeData) > 10 {
+				opcodeData = opcodeData[:10]
 			}
 
-			_ = bound.Reload()
+			_ = boundOpcodes.Reload()
+
+			for i := uint8(0); i <= 0xF; i++ {
+				registerData[i] = fmt.Sprintf("V%X: %04X", i, chip8.Register(i))
+			}
+
+			_ = boundRegisters.Reload()
 
 			info := chip8.Step()
 
@@ -177,9 +202,11 @@ func (e *Emulator) Run() {
 			}
 
 			fyne.Do(func() {
-				list.Select(widget.ListItemID(1))
-				list.ScrollToTop()
-				list.Refresh()
+				opcodeList.Select(widget.ListItemID(1))
+				opcodeList.ScrollToTop()
+				opcodeList.Refresh()
+
+				registerList.Refresh()
 			})
 		}
 	})
