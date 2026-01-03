@@ -165,8 +165,6 @@ func (e *Emulator) Run() {
 		cpuTicker := time.NewTicker(chip8.ClockRate)
 		defer cpuTicker.Stop()
 
-		var ctr int
-
 		for range cpuTicker.C {
 			if !e.running.Load() {
 				break
@@ -179,20 +177,10 @@ func (e *Emulator) Run() {
 				e.next.Store(false)
 			}
 
-			if ctr < 1 {
-				opcode := chip8.Opcode(chip8.ProgramCounter())
-				opstr := fmt.Sprintf("%04X", opcode)
+			opcode := chip8.Opcode(chip8.ProgramCounter())
+			opstr := fmt.Sprintf("%04X", opcode)
 
-				opcodeData = append([]string{opstr}, opcodeData...)
-				ctr++
-			}
-
-			if chip8.ProgramCounter()+2 <= chip8.LastAddress {
-				opcode := chip8.Opcode(chip8.ProgramCounter() + 2)
-				opstr := fmt.Sprintf("%04X", opcode)
-
-				opcodeData = append([]string{opstr}, opcodeData...)
-			}
+			opcodeData = append([]string{opstr}, opcodeData...)
 
 			if len(opcodeData) > 10 {
 				opcodeData = opcodeData[:10]
@@ -233,7 +221,7 @@ func (e *Emulator) Run() {
 			}
 
 			fyne.Do(func() {
-				opcodeList.Select(widget.ListItemID(1))
+				opcodeList.Select(widget.ListItemID(0))
 				opcodeList.ScrollToTop()
 				opcodeList.Refresh()
 
