@@ -19,7 +19,6 @@ package emul8
 import (
 	"context"
 	"emul8/chip8"
-	"fmt"
 	"image"
 	"image/color"
 	"sync"
@@ -36,6 +35,41 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
+
+const hextableUpper = "0123456789ABCDEF"
+
+func EncodeToHexString(src []byte) string {
+	dst := make([]byte, len(src)*2)
+	j := 0
+	for _, v := range src {
+		dst[j] = hextableUpper[v>>4]
+		dst[j+1] = hextableUpper[v&0x0f]
+		j += 2
+	}
+	return string(dst)
+}
+
+func RemovePadding(src string) string {
+	b := []byte(src)
+	var i int
+	for ; i < len(b); i++ {
+		if b[i] != '0' {
+			break
+		}
+	}
+
+	if i == len(b) {
+		return "0"
+	}
+	return string(b[i:])
+}
+
+func Uint16ToBytes(i uint16) []byte {
+	var b [2]byte
+	b[0] = byte(i >> 8)
+	b[1] = byte(i)
+	return b[:]
+}
 
 var keyMap = map[fyne.KeyName]uint8{
 	fyne.Key1: 0x1, fyne.Key2: 0x2, fyne.Key3: 0x3, fyne.Key4: 0xC,
@@ -116,7 +150,9 @@ func (e *Emulator) Run() {
 	boundRegisters := binding.BindStringList(&registerData)
 
 	for i := uint8(0); i <= 0xF; i++ {
-		registerData[i] = fmt.Sprintf("V%X: %04X", i, chip8.Register(i))
+		registerName := RemovePadding(EncodeToHexString([]byte{i}))
+		registerValue := EncodeToHexString([]byte{chip8.Register(i)})
+		registerData[i] = "V" + registerName + ": " + registerValue
 	}
 
 	registerList := widget.NewListWithData(
@@ -142,8 +178,13 @@ func (e *Emulator) Run() {
 		}),
 	)
 
-	programCounter := widget.NewLabel(fmt.Sprintf("PC: %04X", chip8.ProgramCounter()))
-	index := widget.NewLabel(fmt.Sprintf("I: %04X", chip8.Index()))
+	b := Uint16ToBytes(chip8.ProgramCounter())
+	h := EncodeToHexString(b)
+	programCounter := widget.NewLabel("PC: " + h)
+
+	b = Uint16ToBytes(chip8.Index())
+	h = EncodeToHexString(b)
+	index := widget.NewLabel("I: " + h)
 
 	hbox := container.NewHBox(layout.NewSpacer(), programCounter, layout.NewSpacer(), index, layout.NewSpacer())
 
@@ -178,7 +219,8 @@ func (e *Emulator) Run() {
 			}
 
 			opcode := chip8.Opcode(chip8.ProgramCounter())
-			opstr := fmt.Sprintf("%04X", opcode)
+			b := Uint16ToBytes(opcode)
+			opstr := EncodeToHexString(b[:])
 
 			opcodeData = append([]string{opstr}, opcodeData...)
 
@@ -188,13 +230,15 @@ func (e *Emulator) Run() {
 
 			_ = boundOpcodes.Reload()
 
+			info := chip8.Step()
+
 			for i := uint8(0); i <= 0xF; i++ {
-				registerData[i] = fmt.Sprintf("V%X: %04X", i, chip8.Register(i))
+				registerName := RemovePadding(EncodeToHexString([]byte{i}))
+				registerValue := EncodeToHexString([]byte{chip8.Register(i)})
+				registerData[i] = "V" + registerName + ": " + registerValue
 			}
 
 			_ = boundRegisters.Reload()
-
-			info := chip8.Step()
 
 			redraw := (info & chip8.Redraw) != 0
 			sound := (info & chip8.Sound) != 0
@@ -227,8 +271,13 @@ func (e *Emulator) Run() {
 
 				registerList.Refresh()
 
-				programCounter.SetText(fmt.Sprintf("PC: %04X", chip8.ProgramCounter()))
-				index.SetText(fmt.Sprintf("I: %04X", chip8.Index()))
+				b := Uint16ToBytes(chip8.ProgramCounter())
+				h := EncodeToHexString(b)
+				programCounter.SetText("PC: " + h)
+
+				b = Uint16ToBytes(chip8.Index())
+				h = EncodeToHexString(b)
+				index.SetText("I: " + h)
 			})
 		}
 	})
