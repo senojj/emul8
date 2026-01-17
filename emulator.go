@@ -256,6 +256,10 @@ func (e *Emulator) Run() {
 
 	cpuData.Refresh()
 
+	opcode := cpu.OpcodeAt(cpu.ProgramCounter())
+	opcodeData.Prepend(opcode.String())
+	opcodeData.Refresh()
+
 	box := container.NewBorder(toolbar, registerContent, opcodeContent, cpuContent, imageContent)
 
 	stack := container.NewStack(background, box)
@@ -288,10 +292,6 @@ func (e *Emulator) Run() {
 				e.next.Store(false)
 			}
 
-			opcode := cpu.OpcodeAt(cpu.ProgramCounter())
-
-			opcodeData.Prepend(opcode.String())
-
 			info := cpu.Step()
 
 			for i := uint8(0); i <= 0xF; i++ {
@@ -321,6 +321,9 @@ func (e *Emulator) Run() {
 					buffer.Set(x, y, c) // Directly sets pixels in the buffer
 				}
 			}
+
+			opcode := cpu.OpcodeAt(cpu.ProgramCounter())
+			opcodeData.Prepend(opcode.String())
 
 			b := byteconv.U16tob(cpu.ProgramCounter())
 			h := byteconv.Btoh(b, 3)
