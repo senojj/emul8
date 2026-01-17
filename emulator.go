@@ -31,7 +31,6 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
@@ -85,30 +84,68 @@ func (e *Emulator) Load(b []byte) {
 	cpu.Load(b)
 }
 
+type datum struct {
+	value string
+	dirty bool
+}
+
+func (d *datum) Update(value string) {
+	if value != d.value {
+		d.value = value
+		d.dirty = true
+	}
+}
+
+func (d *datum) Read() (string, bool) {
+	value, dirty := d.value, d.dirty
+	d.dirty = false
+	return value, dirty
+}
+
+func (d *datum) Mark() {
+	d.dirty = true
+}
+
 type Console struct {
 	capacity  int
+	data      []datum
 	container *fyne.Container
 }
 
-func NewConsole(capacity int) *Console {
+func NewConsole(capacity int, l fyne.Layout) *Console {
+	data := make([]datum, capacity)
 	labels := make([]fyne.CanvasObject, capacity)
+
 	for i := range capacity {
-		labels[i] = widget.NewLabel("")
+		label := widget.NewLabel("")
+		label.Theme().Font(fyne.TextStyle{Monospace: true})
+		labels[i] = label
 	}
+
 	return &Console{
 		capacity:  capacity,
-		container: container.NewVBox(labels...),
+		data:      data,
+		container: container.New(l, labels...),
 	}
+}
+
+func (o *Console) Update(i int, value string) {
+	o.data[i].value, o.data[i].dirty = value, true
 }
 
 func (o *Console) Prepend(msg string) {
-	newEntry := widget.NewLabel(msg)
-	newEntry.Theme().Font(fyne.TextStyle{Monospace: true})
-	o.container.Objects = append([]fyne.CanvasObject{newEntry}, o.container.Objects[:o.capacity]...)
+	o.data = append([]datum{{value: msg}}, o.data[:o.capacity]...)
+	for i := range o.capacity {
+		o.data[i].Mark()
+	}
 }
 
 func (o *Console) Refresh() {
-	o.container.Refresh()
+	for i := range o.capacity {
+		if value, dirty := o.data[i].Read(); dirty {
+			o.container.Objects[i].(*widget.Label).SetText(value)
+		}
+	}
 }
 
 func (o *Console) Object() fyne.CanvasObject {
@@ -154,31 +191,30 @@ func (e *Emulator) Run() {
 		image,
 	)
 
-	opcodeData := NewConsole(9)
+	opcodeData := NewConsole(8, layout.NewVBoxLayout())
 	opcodeContent := container.New(
 		layout.NewGridWrapLayout(fyne.NewSize(125, (float32)(chip8.Height))),
 		opcodeData.Object(),
 	)
 
-	registerData := make([]string, chip8.RegisterCount)
+	registerData := NewConsole(chip8.RegisterCount, layout.NewGridLayoutWithColumns(4))
+	registerContent := container.New(
+		layout.NewGridWrapLayout(fyne.NewSize(float32(chip8.Width)*10, 200)),
+		registerData.Object(),
+	)
+	registerContent = container.New(
+		layout.NewHBoxLayout(),
+		layout.NewSpacer(),
+		layout.NewSpacer(),
+		layout.NewSpacer(),
+		registerContent,
+		layout.NewSpacer(),
+	)
 
-	boundRegisters := binding.BindStringList(&registerData)
-
-	for i := uint8(0); i <= 0xF; i++ {
-		registerName := byteconv.Btoh([]byte{i}, 1)
-		registerValue := byteconv.Btoh([]byte{cpu.Register(i)}, 2)
-		registerData[i] = "V" + registerName + ": " + registerValue
-	}
-
-	registerList := widget.NewListWithData(
-		boundRegisters,
-		func() fyne.CanvasObject {
-			return widget.NewLabel("template")
-		},
-		func(di binding.DataItem, obj fyne.CanvasObject) {
-			s, _ := di.(binding.String).Get()
-			obj.(*widget.Label).SetText(s)
-		},
+	cpuData := NewConsole(3, layout.NewVBoxLayout())
+	cpuContent := container.New(
+		layout.NewGridWrapLayout(fyne.NewSize(100, (float32)(chip8.Height))),
+		cpuData.Object(),
 	)
 
 	toolbar := widget.NewToolbar(
@@ -195,21 +231,27 @@ func (e *Emulator) Run() {
 
 	b := byteconv.U16tob(cpu.ProgramCounter())
 	h := byteconv.Btoh(b, 3)
-	programCounter := widget.NewLabel("PC: " + h)
+	lblProgramCounter := "PC: " + h
+
+	cpuData.Update(0, lblProgramCounter)
 
 	b = byteconv.U16tob(cpu.Index())
 	h = byteconv.Btoh(b, 3)
-	index := widget.NewLabel("I: " + h)
+	lblIndex := "I: " + h
 
-	stackDepth := widget.NewLabel("Stack: " + strconv.Itoa(cpu.StackDepth()))
+	cpuData.Update(1, lblIndex)
 
-	hbox := container.NewHBox(layout.NewSpacer(), programCounter, layout.NewSpacer(), index, layout.NewSpacer(), stackDepth, layout.NewSpacer())
+	lblStackDepth := "Stack: " + strconv.Itoa(cpu.StackDepth())
 
-	box := container.NewBorder(toolbar, hbox, opcodeContent, registerList, imageContent)
+	cpuData.Update(2, lblStackDepth)
+
+	cpuData.Refresh()
+
+	box := container.NewBorder(toolbar, registerContent, opcodeContent, cpuContent, imageContent)
 
 	w.SetContent(box)
 
-	w.Resize(fyne.NewSize(float32(chip8.Width*10), float32(chip8.Height*10))) // 10x scale for visibility
+	// w.Resize(fyne.NewSize(float32(chip8.Width*10), float32(chip8.Height*10))) // 10x scale for visibility
 
 	w.SetFixedSize(true)
 
@@ -246,10 +288,9 @@ func (e *Emulator) Run() {
 			for i := uint8(0); i <= 0xF; i++ {
 				registerName := byteconv.Btoh([]byte{i}, 1)
 				registerValue := byteconv.Btoh([]byte{cpu.Register(i)}, 2)
-				registerData[i] = "V" + registerName + ": " + registerValue
+				label := "V" + registerName + ": " + registerValue
+				registerData.Update(int(i), label)
 			}
-
-			_ = boundRegisters.Reload()
 
 			redraw := (info & chip8.Redraw) != 0
 			sound := (info & chip8.Sound) != 0
@@ -271,28 +312,29 @@ func (e *Emulator) Run() {
 				}
 			}
 
-			pc := cpu.ProgramCounter()
-			i := cpu.Index()
-			sd := cpu.StackDepth()
+			b := byteconv.U16tob(cpu.ProgramCounter())
+			h := byteconv.Btoh(b, 3)
+			lblProgramCounter = "PC: " + h
+
+			cpuData.Update(0, lblProgramCounter)
+
+			b = byteconv.U16tob(cpu.Index())
+			h = byteconv.Btoh(b, 3)
+			lblIndex = "I: " + h
+
+			cpuData.Update(1, lblIndex)
+
+			lblStackDepth = "Stack: " + strconv.Itoa(cpu.StackDepth())
+
+			cpuData.Update(2, lblStackDepth)
 
 			fyne.Do(func() {
 				if redraw {
 					image.Refresh()
 				}
-
 				opcodeData.Refresh()
-
-				registerList.Refresh()
-
-				b := byteconv.U16tob(pc)
-				h := byteconv.Btoh(b, 3)
-				programCounter.SetText("PC: " + h)
-
-				b = byteconv.U16tob(i)
-				h = byteconv.Btoh(b, 3)
-				index.SetText("I: " + h)
-
-				stackDepth.SetText("Stack: " + strconv.Itoa(sd))
+				registerData.Refresh()
+				cpuData.Refresh()
 			})
 		}
 	})
