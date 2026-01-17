@@ -18,6 +18,7 @@ package emul8
 
 import (
 	"context"
+	"emul8/byteconv"
 	"emul8/chip8"
 	"image"
 	"image/color"
@@ -37,46 +38,17 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-const hextableUpper = "0123456789ABCDEF"
-
-func EncodeToHexString(src []byte) string {
-	dst := make([]byte, len(src)*2)
-	j := 0
-	for _, v := range src {
-		dst[j] = hextableUpper[v>>4]
-		dst[j+1] = hextableUpper[v&0x0f]
-		j += 2
-	}
-	return string(dst)
-}
-
-func RemovePadding(src string) string {
-	b := []byte(src)
-	var i int
-	for ; i < len(b); i++ {
-		if b[i] != '0' {
-			break
-		}
-	}
-
-	if i == len(b) {
-		return "0"
-	}
-	return string(b[i:])
-}
-
-func Uint16ToBytes(i uint16) []byte {
-	var b [2]byte
-	b[0] = byte(i >> 8)
-	b[1] = byte(i)
-	return b[:]
-}
-
 var keyMap = map[fyne.KeyName]uint8{
 	fyne.Key1: 0x1, fyne.Key2: 0x2, fyne.Key3: 0x3, fyne.Key4: 0xC,
 	fyne.KeyQ: 0x4, fyne.KeyW: 0x5, fyne.KeyE: 0x6, fyne.KeyR: 0xD,
 	fyne.KeyA: 0x7, fyne.KeyS: 0x8, fyne.KeyD: 0x9, fyne.KeyF: 0xE,
 	fyne.KeyZ: 0xA, fyne.KeyX: 0x0, fyne.KeyC: 0xB, fyne.KeyV: 0xF,
+}
+
+var cpu chip8.Processor
+
+func init() {
+	cpu.Reset()
 }
 
 type Emulator struct {
@@ -88,7 +60,7 @@ type Emulator struct {
 
 func (e *Emulator) onKeyDown(k *fyne.KeyEvent) {
 	if hex, ok := keyMap[k.Name]; ok {
-		chip8.SetKey(hex, true)
+		cpu.SetKey(hex, true)
 	}
 }
 
@@ -104,13 +76,59 @@ func (e *Emulator) onKeyUp(k *fyne.KeyEvent) {
 	}
 
 	if hex, ok := keyMap[k.Name]; ok {
-		chip8.SetKey(hex, false)
+		cpu.SetKey(hex, false)
 	}
 }
 
 func (e *Emulator) Load(b []byte) {
-	chip8.Reset()
-	chip8.Load(b)
+	cpu.Reset()
+	cpu.Load(b)
+}
+
+type Console struct {
+	capacity  int
+	container *fyne.Container
+}
+
+func NewConsole(capacity int) *Console {
+	labels := make([]fyne.CanvasObject, capacity)
+	for i := range capacity {
+		labels[i] = widget.NewLabel("")
+	}
+	return &Console{
+		capacity:  capacity,
+		container: container.NewVBox(labels...),
+	}
+}
+
+func (o *Console) Prepend(msg string) {
+	newEntry := widget.NewLabel(msg)
+	newEntry.Theme().Font(fyne.TextStyle{Monospace: true})
+	o.container.Objects = append([]fyne.CanvasObject{newEntry}, o.container.Objects[:o.capacity]...)
+}
+
+func (o *Console) Refresh() {
+	o.container.Refresh()
+}
+
+func (o *Console) Object() fyne.CanvasObject {
+	return o.container
+}
+
+type Content struct {
+	fyne.CanvasObject
+	size fyne.Size
+}
+
+func NewContent(o fyne.CanvasObject, size fyne.Size) *Content {
+	return &Content{
+		o,
+		size,
+	}
+}
+
+func (c *Content) MinSize() fyne.Size {
+	return c.size
 }
 
 func (e *Emulator) Run() {
@@ -131,19 +149,15 @@ func (e *Emulator) Run() {
 	canv.SetOnKeyDown(e.onKeyDown)
 	canv.SetOnKeyUp(e.onKeyUp)
 
-	opcodeData := make([]string, 0)
+	imageContent := container.New(
+		layout.NewGridWrapLayout(fyne.NewSize(float32(chip8.Width)*10, float32(chip8.Height)*10)),
+		image,
+	)
 
-	boundOpcodes := binding.BindStringList(&opcodeData)
-
-	opcodeList := widget.NewListWithData(
-		boundOpcodes,
-		func() fyne.CanvasObject {
-			return widget.NewLabel("template")
-		},
-		func(di binding.DataItem, obj fyne.CanvasObject) {
-			s, _ := di.(binding.String).Get()
-			obj.(*widget.Label).SetText(s)
-		},
+	opcodeData := NewConsole(9)
+	opcodeContent := container.New(
+		layout.NewGridWrapLayout(fyne.NewSize(125, (float32)(chip8.Height))),
+		opcodeData.Object(),
 	)
 
 	registerData := make([]string, chip8.RegisterCount)
@@ -151,8 +165,8 @@ func (e *Emulator) Run() {
 	boundRegisters := binding.BindStringList(&registerData)
 
 	for i := uint8(0); i <= 0xF; i++ {
-		registerName := RemovePadding(EncodeToHexString([]byte{i}))
-		registerValue := EncodeToHexString([]byte{chip8.Register(i)})
+		registerName := byteconv.Btoh([]byte{i}, 1)
+		registerValue := byteconv.Btoh([]byte{cpu.Register(i)}, 2)
 		registerData[i] = "V" + registerName + ": " + registerValue
 	}
 
@@ -179,19 +193,19 @@ func (e *Emulator) Run() {
 		}),
 	)
 
-	b := Uint16ToBytes(chip8.ProgramCounter())
-	h := EncodeToHexString(b)
+	b := byteconv.U16tob(cpu.ProgramCounter())
+	h := byteconv.Btoh(b, 3)
 	programCounter := widget.NewLabel("PC: " + h)
 
-	b = Uint16ToBytes(chip8.Index())
-	h = EncodeToHexString(b)
+	b = byteconv.U16tob(cpu.Index())
+	h = byteconv.Btoh(b, 3)
 	index := widget.NewLabel("I: " + h)
 
-	stackDepth := widget.NewLabel("Stack: " + strconv.Itoa(chip8.StackDepth()))
+	stackDepth := widget.NewLabel("Stack: " + strconv.Itoa(cpu.StackDepth()))
 
 	hbox := container.NewHBox(layout.NewSpacer(), programCounter, layout.NewSpacer(), index, layout.NewSpacer(), stackDepth, layout.NewSpacer())
 
-	box := container.NewBorder(toolbar, hbox, opcodeList, registerList, image)
+	box := container.NewBorder(toolbar, hbox, opcodeContent, registerList, imageContent)
 
 	w.SetContent(box)
 
@@ -223,22 +237,15 @@ func (e *Emulator) Run() {
 				e.next.Store(false)
 			}
 
-			opcode := chip8.Opcode(chip8.ProgramCounter())
-			b := Uint16ToBytes(opcode)
-			opstr := EncodeToHexString(b[:])
+			opcode := cpu.OpcodeAt(cpu.ProgramCounter())
 
-			var data [16]string
-			data[0] = opstr
-			copy(data[1:], opcodeData)
-			opcodeData = data[:]
+			opcodeData.Prepend(opcode.String())
 
-			_ = boundOpcodes.Reload()
-
-			info := chip8.Step()
+			info := cpu.Step()
 
 			for i := uint8(0); i <= 0xF; i++ {
-				registerName := RemovePadding(EncodeToHexString([]byte{i}))
-				registerValue := EncodeToHexString([]byte{chip8.Register(i)})
+				registerName := byteconv.Btoh([]byte{i}, 1)
+				registerValue := byteconv.Btoh([]byte{cpu.Register(i)}, 2)
 				registerData[i] = "V" + registerName + ": " + registerValue
 			}
 
@@ -254,7 +261,7 @@ func (e *Emulator) Run() {
 			}
 
 			if redraw {
-				for i, val := range chip8.Display() {
+				for i, val := range cpu.Display() {
 					x, y := i%chip8.Width, i/chip8.Width
 					c := color.Black
 					if val == 1 {
@@ -264,26 +271,25 @@ func (e *Emulator) Run() {
 				}
 			}
 
-			pc := chip8.ProgramCounter()
-			i := chip8.Index()
-			sd := chip8.StackDepth()
+			pc := cpu.ProgramCounter()
+			i := cpu.Index()
+			sd := cpu.StackDepth()
 
 			fyne.Do(func() {
 				if redraw {
 					image.Refresh()
 				}
-				opcodeList.Select(widget.ListItemID(0))
-				opcodeList.ScrollToTop()
-				opcodeList.Refresh()
+
+				opcodeData.Refresh()
 
 				registerList.Refresh()
 
-				b := Uint16ToBytes(pc)
-				h := EncodeToHexString(b)
+				b := byteconv.U16tob(pc)
+				h := byteconv.Btoh(b, 3)
 				programCounter.SetText("PC: " + h)
 
-				b = Uint16ToBytes(i)
-				h = EncodeToHexString(b)
+				b = byteconv.U16tob(i)
+				h = byteconv.Btoh(b, 3)
 				index.SetText("I: " + h)
 
 				stackDepth.SetText("Stack: " + strconv.Itoa(sd))

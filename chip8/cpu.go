@@ -64,7 +64,7 @@ var fontSet = []byte{
 	0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 }
 
-type processor struct {
+type Processor struct {
 	memory          [4096]byte
 	v               [RegisterCount]byte
 	keyState        [KeyCount]atomic.Bool
@@ -78,58 +78,147 @@ type processor struct {
 	lastTimerUpdate time.Time
 }
 
-var cpu processor
-
-func init() {
-	Reset()
+func (p *Processor) Execute(op Opcode, info *uint8) {
+	switch op.kind() {
+	case 0x0:
+		switch uint16(op) {
+		case 0x00E0:
+			clearScreen(p, info)
+		case 0x00EE:
+			returnFromSubroutine(p)
+		default:
+			panic("unknown 0x0 opcode")
+		}
+	case 0x1:
+		jumpToLocation(p, op.nnn())
+	case 0x2:
+		callSubroutine(p, op.nnn())
+	case 0x3:
+		stepIfXEqualsNN(p, op.x(), op.nn())
+	case 0x4:
+		stepIfXNotEqualsNN(p, op.x(), op.nn())
+	case 0x5:
+		stepIfXEqualsY(p, op.x(), op.y())
+	case 0x6:
+		setXToNN(p, op.x(), op.nn())
+	case 0x7:
+		addNNToX(p, op.x(), op.nn())
+	case 0x8:
+		switch op.n() {
+		case 0x0:
+			setXToY(p, op.x(), op.y())
+		case 0x1:
+			orXY(p, op.x(), op.y())
+		case 0x2:
+			andXY(p, op.x(), op.y())
+		case 0x3:
+			xorXY(p, op.x(), op.y())
+		case 0x4:
+			addXY(p, op.x(), op.y())
+		case 0x5:
+			subtractYFromX(p, op.x(), op.y())
+		case 0x6:
+			shiftRightX(p, op.x())
+		case 0x7:
+			subtractXFromY(p, op.x(), op.y())
+		case 0xE:
+			shiftLeftX(p, op.x())
+		default:
+			panic("unknown 0x8 opcode")
+		}
+	case 0x9:
+		stepIfXNotEqualsY(p, op.x(), op.y())
+	case 0xA:
+		setIToNNN(p, op.nnn())
+	case 0xB:
+		jumpWithOffset(p, op.nnn())
+	case 0xC:
+		setXToRandom(p, op.x(), op.nn())
+	case 0xD:
+		drawSprite(p, op.x(), op.y(), op.n(), info)
+	case 0xE:
+		switch op.nn() {
+		case 0x9E:
+			stepIfKeyDown(p, op.x())
+		case 0xA1:
+			stepIfKeyUp(p, op.x())
+		default:
+			panic("unknown 0xE opcode")
+		}
+	case 0xF:
+		switch op.nn() {
+		case 0x07:
+			setXToDelay(p, op.x())
+		case 0x0A:
+			pauseUntilKeyPressed(p, op.x())
+		case 0x15:
+			setDelayToX(p, op.x())
+		case 0x18:
+			setSoundToX(p, op.x())
+		case 0x1E:
+			setIToX(p, op.x())
+		case 0x29:
+			setIToSymbol(p, op.x())
+		case 0x33:
+			binaryCodedDecimal(p, op.x())
+		case 0x55:
+			setRegistersToMemory(p, op.x())
+		case 0x65:
+			setMemoryToRegisters(p, op.x())
+		default:
+			panic("unknown 0xF opcode")
+		}
+	default:
+		panic("unknown opcode")
+	}
 }
 
-func Reset() {
-	cpu = processor{}
+func (p *Processor) Reset() {
+	*p = Processor{}
 
-	written := Write(FontStartAddress, fontSet)
+	written := p.Write(FontStartAddress, fontSet)
 	if int(written) < len(fontSet) {
 		panic("insufficient memory to write font set")
 	}
 }
 
-func Write(loc uint16, data []byte) uint16 {
+func (p *Processor) Write(loc uint16, data []byte) uint16 {
 	var i uint16
 	for ; loc+i < 0xFFF && int(i) < len(data); i++ {
-		cpu.memory[loc+i] = data[i]
+		p.memory[loc+i] = data[i]
 	}
 	return i
 }
 
-func Read(loc uint16, data []byte) uint16 {
+func (p *Processor) Read(loc uint16, data []byte) uint16 {
 	var i uint16
 	for ; loc+i < 0xFFF && int(i) < len(data); i++ {
-		data[i] = cpu.memory[loc+i]
+		data[i] = p.memory[loc+i]
 	}
 	return i
 }
 
-func Display() []byte {
-	return cpu.display[:]
+func (p *Processor) Display() []byte {
+	return p.display[:]
 }
 
-func Load(b []byte) {
-	written := Write(ProgramStartAddress, b)
+func (p *Processor) Load(b []byte) {
+	written := p.Write(ProgramStartAddress, b)
 	if int(written) < len(b) {
 		panic("insufficient memory")
 	}
-	cpu.pc = ProgramStartAddress
+	p.pc = ProgramStartAddress
 }
 
-func SetKey(key uint8, value bool) {
-	cpu.keyState[key&0x0F].Store(value)
+func (p *Processor) SetKey(key uint8, value bool) {
+	p.keyState[key&0x0F].Store(value)
 }
 
-func DrawSprite(x, y, h byte) {
-	startX := uint16(x) & uint16(Width-1)
-	startY := uint16(y) & uint16(Height-1)
+func (p *Processor) DrawSprite(x, y, h uint8) {
+	startX := uint16(p.v[x]) & uint16(Width-1)
+	startY := uint16(p.v[y]) & uint16(Height-1)
 
-	cpu.v[CarryFlag] = 0 // Reset the collision register.
+	p.v[CarryFlag] = 0 // Reset the collision register.
 
 	for row := range uint16(h) {
 		if startY+row >= uint16(Height) {
@@ -137,7 +226,7 @@ func DrawSprite(x, y, h byte) {
 			break
 		}
 
-		sprite := cpu.memory[cpu.i+row]
+		sprite := p.memory[p.i+row]
 
 		for col := range uint16(8) {
 			if startX+col >= uint16(Width) {
@@ -147,35 +236,35 @@ func DrawSprite(x, y, h byte) {
 			if (sprite & (0x80 >> col)) != 0 {
 				index := (startX + col) + ((startY + row) * uint16(Width))
 
-				if cpu.display[index] == 1 {
+				if p.display[index] == 1 {
 					// Pixel was already on. This indicates a graphical object collision.
-					cpu.v[CarryFlag] = 1 // Turn on the collision register.
+					p.v[CarryFlag] = 1 // Turn on the collision register.
 				}
-				cpu.display[index] ^= 1
+				p.display[index] ^= 1
 			}
 		}
 	}
 }
 
-func Register(v uint8) byte {
+func (p *Processor) Register(v uint8) uint8 {
 	key := v & 0xF
-	return cpu.v[key]
+	return p.v[key]
 }
 
-func StackDepth() int {
-	return int(cpu.sp)
+func (p *Processor) StackDepth() int {
+	return int(p.sp)
 }
 
-func Index() uint16 {
-	return cpu.i
+func (p *Processor) Index() uint16 {
+	return p.i
 }
 
-func ProgramCounter() uint16 {
-	return cpu.pc
+func (p *Processor) ProgramCounter() uint16 {
+	return p.pc
 }
 
-func Opcode(offset uint16) uint16 {
-	read := Read(offset, buffer[:])
+func (p *Processor) OpcodeAt(offset uint16) Opcode {
+	read := p.Read(offset, buffer[:])
 	if read < 2 {
 		panic("program runaway")
 	}
@@ -184,34 +273,34 @@ func Opcode(offset uint16) uint16 {
 	// in memory, starting at the program counter
 	high := uint16(buffer[0]) // high-order bits of opcode
 	low := uint16(buffer[1])  // low-order bits of opcode
-	return (high << 8) | low
+	return Opcode((high << 8) | low)
 }
 
-func Step() uint8 {
+func (p *Processor) Step() uint8 {
 	var info uint8
 
-	opcode := Opcode(cpu.pc)
+	opcode := p.OpcodeAt(p.ProgramCounter())
 
-	cpu.pc += 2
+	p.pc += 2
 
-	execute(opcode, &info)
+	p.Execute(opcode, &info)
 
-	if time.Since(cpu.lastTimerUpdate) >= TimerRate {
-		if cpu.sound > 0 {
-			cpu.sound--
+	if time.Since(p.lastTimerUpdate) >= TimerRate {
+		if p.sound > 0 {
+			p.sound--
 		}
 
-		if cpu.delay > 0 {
-			cpu.delay--
+		if p.delay > 0 {
+			p.delay--
 		}
-		cpu.lastTimerUpdate = time.Now()
+		p.lastTimerUpdate = time.Now()
 	}
 
-	if cpu.sound > 0 {
+	if p.sound > 0 {
 		info |= Sound
 	}
 
-	if cpu.delay > 0 {
+	if p.delay > 0 {
 		info |= Delay
 	}
 	return info

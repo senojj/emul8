@@ -17,197 +17,198 @@
 package chip8
 
 import (
+	"emul8/byteconv"
 	"math/rand/v2"
 )
 
-func clearScreen(info *uint8) {
-	for i := range cpu.display {
-		cpu.display[i] = 0
+func clearScreen(p *Processor, info *uint8) {
+	for i := range p.display {
+		p.display[i] = 0
 	}
 	*info |= Redraw
 }
 
-func callSubroutine(nnn uint16) {
-	if int(cpu.sp) >= len(cpu.stack) {
+func callSubroutine(p *Processor, nnn uint16) {
+	if int(p.sp) >= len(p.stack) {
 		panic("stack overflow")
 	}
-	cpu.stack[cpu.sp] = cpu.pc
-	cpu.sp++
-	cpu.pc = nnn
+	p.stack[p.sp] = p.pc
+	p.sp++
+	p.pc = nnn
 }
 
-func returnFromSubroutine() {
-	if cpu.sp == 0 {
+func returnFromSubroutine(p *Processor) {
+	if p.sp == 0 {
 		panic("stack underflow")
 	}
-	cpu.sp--
-	cpu.pc = cpu.stack[cpu.sp]
+	p.sp--
+	p.pc = p.stack[p.sp]
 }
 
-func jumpToLocation(nnn uint16) {
-	cpu.pc = nnn
+func jumpToLocation(p *Processor, nnn uint16) {
+	p.pc = nnn
 }
 
-func jumpWithOffset(nnn uint16) {
-	cpu.pc = nnn + uint16(cpu.v[0x0])
+func jumpWithOffset(p *Processor, nnn uint16) {
+	p.pc = nnn + uint16(p.v[0x0])
 }
 
-func stepIfXEqualsNN(x, nn uint16) {
-	if cpu.v[x] == byte(nn) {
-		cpu.pc += 2
+func stepIfXEqualsNN(p *Processor, x, nn uint8) {
+	if p.v[x] == byte(nn) {
+		p.pc += 2
 	}
 }
 
-func stepIfXNotEqualsNN(x, nn uint16) {
-	if cpu.v[x] != byte(nn) {
-		cpu.pc += 2
+func stepIfXNotEqualsNN(p *Processor, x, nn uint8) {
+	if p.v[x] != byte(nn) {
+		p.pc += 2
 	}
 }
 
-func stepIfXEqualsY(x, y uint16) {
-	if cpu.v[x] == cpu.v[y] {
-		cpu.pc += 2
+func stepIfXEqualsY(p *Processor, x, y uint8) {
+	if p.v[x] == p.v[y] {
+		p.pc += 2
 	}
 }
 
-func stepIfXNotEqualsY(x, y uint16) {
-	if cpu.v[x] != cpu.v[y] {
-		cpu.pc += 2
+func stepIfXNotEqualsY(p *Processor, x, y uint8) {
+	if p.v[x] != p.v[y] {
+		p.pc += 2
 	}
 }
 
-func setXToNN(x, nn uint16) {
-	cpu.v[x] = byte(nn)
+func setXToNN(p *Processor, x, nn uint8) {
+	p.v[x] = byte(nn)
 }
 
-func addNNToX(x, nn uint16) {
-	cpu.v[x] += byte(nn)
+func addNNToX(p *Processor, x, nn uint8) {
+	p.v[x] += byte(nn)
 }
 
-func setXToY(x, y uint16) {
-	cpu.v[x] = cpu.v[y]
+func setXToY(p *Processor, x, y uint8) {
+	p.v[x] = p.v[y]
 }
 
-func orXY(x, y uint16) {
+func orXY(p *Processor, x, y uint8) {
 	// This operation traditionally resets the carry flag.
-	cpu.v[CarryFlag] = 0
-	cpu.v[x] |= cpu.v[y]
+	p.v[CarryFlag] = 0
+	p.v[x] |= p.v[y]
 }
 
-func andXY(x, y uint16) {
+func andXY(p *Processor, x, y uint8) {
 	// This operation traditionally resets the carry flag.
-	cpu.v[CarryFlag] = 0
-	cpu.v[x] &= cpu.v[y]
+	p.v[CarryFlag] = 0
+	p.v[x] &= p.v[y]
 }
 
-func xorXY(x, y uint16) {
+func xorXY(p *Processor, x, y uint8) {
 	// This operation traditionally resets the carry flag.
-	cpu.v[CarryFlag] = 0
-	cpu.v[x] ^= cpu.v[y]
+	p.v[CarryFlag] = 0
+	p.v[x] ^= p.v[y]
 }
 
-func addXY(x, y uint16) {
-	sum := uint16(cpu.v[x]) + uint16(cpu.v[y])
+func addXY(p *Processor, x, y uint8) {
+	sum := uint16(p.v[x]) + uint16(p.v[y])
 	// This operation traditionally resets the carry flag.
-	cpu.v[CarryFlag] = 0
+	p.v[CarryFlag] = 0
 	if sum > 255 {
-		cpu.v[CarryFlag] = 1
+		p.v[CarryFlag] = 1
 	}
-	cpu.v[x] = byte(sum & 0xFF)
+	p.v[x] = byte(sum & 0xFF)
 }
 
-func subtractYFromX(x, y uint16) {
-	cpu.v[CarryFlag] = 0
-	if cpu.v[x] >= cpu.v[y] {
-		cpu.v[CarryFlag] = 1
+func subtractYFromX(p *Processor, x, y uint8) {
+	p.v[CarryFlag] = 0
+	if p.v[x] >= p.v[y] {
+		p.v[CarryFlag] = 1
 	}
-	cpu.v[x] -= cpu.v[y]
+	p.v[x] -= p.v[y]
 }
 
-func subtractXFromY(x, y uint16) {
-	cpu.v[CarryFlag] = 0
-	if cpu.v[y] >= cpu.v[x] {
-		cpu.v[CarryFlag] = 1
+func subtractXFromY(p *Processor, x, y uint8) {
+	p.v[CarryFlag] = 0
+	if p.v[y] >= p.v[x] {
+		p.v[CarryFlag] = 1
 	}
-	cpu.v[x] = cpu.v[y] - cpu.v[x]
+	p.v[x] = p.v[y] - p.v[x]
 }
 
-func shiftRightX(x uint16) {
-	cpu.v[CarryFlag] = cpu.v[x] & 0x1
-	cpu.v[x] >>= 1
+func shiftRightX(p *Processor, x uint8) {
+	p.v[CarryFlag] = p.v[x] & 0x1
+	p.v[x] >>= 1
 }
 
-func shiftLeftX(x uint16) {
-	cpu.v[CarryFlag] = (cpu.v[x] & 0x80) >> 7
-	cpu.v[x] <<= 1
+func shiftLeftX(p *Processor, x uint8) {
+	p.v[CarryFlag] = (p.v[x] & 0x80) >> 7
+	p.v[x] <<= 1
 }
 
-func setIToNNN(nnn uint16) {
-	cpu.i = nnn
+func setIToNNN(p *Processor, nnn uint16) {
+	p.i = nnn
 }
 
-func setXToRandom(x, nn uint16) {
+func setXToRandom(p *Processor, x, nn uint8) {
 	randomByte := byte(rand.Uint32N(256))
-	cpu.v[x] = randomByte & byte(nn)
+	p.v[x] = randomByte & byte(nn)
 }
 
-func drawSprite(x, y, n uint16, info *uint8) {
-	DrawSprite(cpu.v[x], cpu.v[y], byte(n))
+func drawSprite(p *Processor, x, y, n uint8, info *uint8) {
+	p.DrawSprite(x, y, n)
 	*info |= Redraw
 }
 
-func stepIfKeyDown(x uint16) {
-	key := cpu.v[x] & 0x0F
-	if cpu.keyState[key].Load() {
-		cpu.pc += 2
+func stepIfKeyDown(p *Processor, x uint8) {
+	key := p.v[x] & 0x0F
+	if p.keyState[key].Load() {
+		p.pc += 2
 	}
 }
 
-func stepIfKeyUp(x uint16) {
-	key := cpu.v[x] & 0x0F
-	if !cpu.keyState[key].Load() {
-		cpu.pc += 2
+func stepIfKeyUp(p *Processor, x uint8) {
+	key := p.v[x] & 0x0F
+	if !p.keyState[key].Load() {
+		p.pc += 2
 	}
 }
 
-func setXToDelay(x uint16) {
-	cpu.v[x] = cpu.delay
+func setXToDelay(p *Processor, x uint8) {
+	p.v[x] = p.delay
 }
 
-func pauseUntilKeyPressed(x uint16) {
+func pauseUntilKeyPressed(p *Processor, x uint8) {
 	var keyPressed bool
 
-	for i := range uint8(len(cpu.keyState)) {
-		if cpu.keyState[i].Load() {
+	for i := range uint8(len(p.keyState)) {
+		if p.keyState[i].Load() {
 			keyPressed = true
-			cpu.v[x] = i
+			p.v[x] = i
 			break
 		}
 	}
 
 	if !keyPressed {
-		cpu.pc -= 2 // Move the program counter back, replaying the last opcode
+		p.pc -= 2 // Move the program counter back, replaying the last opcode
 	}
 }
 
-func setDelayToX(x uint16) {
-	cpu.delay = cpu.v[x]
+func setDelayToX(p *Processor, x uint8) {
+	p.delay = p.v[x]
 }
 
-func setSoundToX(x uint16) {
-	cpu.sound = cpu.v[x]
+func setSoundToX(p *Processor, x uint8) {
+	p.sound = p.v[x]
 }
 
-func setIToX(x uint16) {
-	cpu.i += uint16(cpu.v[x])
+func setIToX(p *Processor, x uint8) {
+	p.i += uint16(p.v[x])
 }
 
-func setIToSymbol(x uint16) {
-	digit := uint16(cpu.v[x] & 0x0F)
-	cpu.i = FontStartAddress + (digit * 5)
+func setIToSymbol(p *Processor, x uint8) {
+	digit := uint16(p.v[x] & 0x0F)
+	p.i = FontStartAddress + (digit * 5)
 }
 
-func binaryCodedDecimal(x uint16) {
+func binaryCodedDecimal(p *Processor, x uint8) {
 	// Takes the number in register VX (which is one byte, so it can be any number from
 	// 0 to 255) and converts it to three decimal digits, storing these digits in memory
 	// at the address in the index register I. For example, if VX contains 156 (or 9C in
@@ -234,7 +235,7 @@ func binaryCodedDecimal(x uint16) {
 	var bcd uint32
 
 	// Fetch the value from register VX as a 32bit integer.
-	val := uint32(cpu.v[x])
+	val := uint32(p.v[x])
 
 	// Iterate 8 times (once for each bit of the input byte)
 	// Check each BCD nibble. If >= 5, add 3.
@@ -258,132 +259,151 @@ func binaryCodedDecimal(x uint16) {
 		bcd = (bcd << 1) | ((val >> (7 - i)) & 1)
 	}
 
-	cpu.memory[cpu.i] = byte((bcd >> 8) & 0xF)   // Hundreds
-	cpu.memory[cpu.i+1] = byte((bcd >> 4) & 0xF) // Tens
-	cpu.memory[cpu.i+2] = byte(bcd & 0xF)        // Ones
+	p.memory[p.i] = byte((bcd >> 8) & 0xF)   // Hundreds
+	p.memory[p.i+1] = byte((bcd >> 4) & 0xF) // Tens
+	p.memory[p.i+2] = byte(bcd & 0xF)        // Ones
 }
 
-func setRegistersToMemory(x uint16) {
-	for i := uint16(0); i <= x; i++ {
-		cpu.memory[cpu.i+i] = cpu.v[i]
+func setRegistersToMemory(p *Processor, x uint8) {
+	for i := uint8(0); i <= x; i++ {
+		p.memory[p.i+uint16(i)] = p.v[i]
 	}
 }
 
-func setMemoryToRegisters(x uint16) {
-	for i := uint16(0); i <= x; i++ {
-		cpu.v[i] = cpu.memory[cpu.i+i]
+func setMemoryToRegisters(p *Processor, x uint8) {
+	for i := uint8(0); i <= x; i++ {
+		p.v[i] = p.memory[p.i+uint16(i)]
 	}
 }
 
-func execute(opcode uint16, info *uint8) {
-	// First nibble of the opcode is the operation kind.
-	kind := (opcode & 0xF000) >> 12
+type Opcode uint16
 
-	// Second nibble of the opcode is the X register location.
-	x := (opcode & 0x0F00) >> 8
+func (o Opcode) kind() uint8 {
+	return uint8((uint16(o) & 0xF000) >> 12)
+}
 
-	// Third nibble of the opcode is the Y register location.
-	y := (opcode & 0x00F0) >> 4
+func (o Opcode) x() uint8 {
+	return uint8((uint16(o) & 0x0F00) >> 8)
+}
 
-	// Fourth nibble of the opcode is the N value.
-	n := opcode & 0x000F
+func (o Opcode) y() uint8 {
+	return uint8((uint16(o) & 0x00F0) >> 4)
+}
 
-	// Third and fourth nibbles of the opcode combine into the NN value.
-	nn := opcode & 0x00FF
+func (o Opcode) n() uint8 {
+	return uint8(uint16(o) & 0x000F)
+}
 
-	// Second, third, and fourth nibbles of the opcode combine into the NNN value.
-	nnn := opcode & 0x0FFF
+func (o Opcode) nn() uint8 {
+	return uint8(uint16(o) & 0x00FF)
+}
 
-	switch kind {
+func (o Opcode) nnn() uint16 {
+	return uint16(o) & 0x0FFF
+}
+
+func u16toh(i uint16, n int) string {
+	return byteconv.Btoh(byteconv.U16tob(i), n)
+}
+
+func u8toh(i uint8, n int) string {
+	return byteconv.Btoh(byteconv.U16tob(uint16(i)), n)
+}
+
+func (op Opcode) String() string {
+	var str string
+
+	switch op.kind() {
 	case 0x0:
-		switch opcode {
+		switch uint16(op) {
 		case 0x00E0:
-			clearScreen(info)
+			str = "CLS"
 		case 0x00EE:
-			returnFromSubroutine()
+			str = "RET"
 		default:
 			panic("unknown 0x0 opcode")
 		}
 	case 0x1:
-		jumpToLocation(nnn)
+		str = "JP " + u16toh(op.nnn(), 3)
 	case 0x2:
-		callSubroutine(nnn)
+		str = "CALL " + u16toh(op.nnn(), 3)
 	case 0x3:
-		stepIfXEqualsNN(x, nn)
+		str = "SE V" + u8toh(op.x(), 1) + ", " + u8toh(op.nn(), 2)
 	case 0x4:
-		stepIfXNotEqualsNN(x, nn)
+		str = "SNE V" + u8toh(op.x(), 1) + ", " + u8toh(op.nn(), 2)
 	case 0x5:
-		stepIfXEqualsY(x, y)
+		str = "SE V" + u8toh(op.x(), 1) + ", V" + u8toh(op.y(), 1)
 	case 0x6:
-		setXToNN(x, nn)
+		str = "LD V" + u8toh(op.x(), 1) + ", " + u8toh(op.nn(), 2)
 	case 0x7:
-		addNNToX(x, nn)
+		str = "ADD V" + u8toh(op.x(), 1) + ", " + u8toh(op.nn(), 2)
 	case 0x8:
-		switch n {
+		switch op.n() {
 		case 0x0:
-			setXToY(x, y)
+			str = "LD V" + u8toh(op.x(), 1) + ", V" + u8toh(op.y(), 1)
 		case 0x1:
-			orXY(x, y)
+			str = "OR V" + u8toh(op.x(), 1) + ", V" + u8toh(op.y(), 1)
 		case 0x2:
-			andXY(x, y)
+			str = "AND V" + u8toh(op.x(), 1) + ", V" + u8toh(op.y(), 1)
 		case 0x3:
-			xorXY(x, y)
+			str = "XOR V" + u8toh(op.x(), 1) + ", V" + u8toh(op.y(), 1)
 		case 0x4:
-			addXY(x, y)
+			str = "ADD V" + u8toh(op.x(), 1) + ", V" + u8toh(op.y(), 1)
 		case 0x5:
-			subtractYFromX(x, y)
+			str = "SUB V" + u8toh(op.x(), 1) + ", V" + u8toh(op.y(), 1)
 		case 0x6:
-			shiftRightX(x)
+			str = "SHR V" + u8toh(op.x(), 1)
 		case 0x7:
-			subtractXFromY(x, y)
+			str = "SUBN V" + u8toh(op.x(), 1) + ", V" + u8toh(op.y(), 1)
 		case 0xE:
-			shiftLeftX(x)
+			str = "SHL V" + u8toh(op.x(), 1)
 		default:
 			panic("unknown 0x8 opcode")
 		}
 	case 0x9:
-		stepIfXNotEqualsY(x, y)
+		str = "SNE V" + u8toh(op.x(), 1) + ", V" + u8toh(op.y(), 1)
 	case 0xA:
-		setIToNNN(nnn)
+		str = "LD I, " + u16toh(op.nnn(), 3)
 	case 0xB:
-		jumpWithOffset(nnn)
+		str = "JP V0, " + u16toh(op.nnn(), 3)
 	case 0xC:
-		setXToRandom(x, nn)
+		str = "RND V" + u8toh(op.x(), 1) + ", " + u8toh(op.nn(), 2)
 	case 0xD:
-		drawSprite(x, y, n, info)
+		str = "DRW V" + u8toh(op.x(), 1) + ", V" + u8toh(op.y(), 1) + ", " + u8toh(op.nn(), 2)
 	case 0xE:
-		switch nn {
+		switch op.nn() {
 		case 0x9E:
-			stepIfKeyDown(x)
+			str = "SKP V" + u8toh(op.x(), 1)
 		case 0xA1:
-			stepIfKeyUp(x)
+			str = "SKNP V" + u8toh(op.x(), 1)
 		default:
 			panic("unknown 0xE opcode")
 		}
 	case 0xF:
-		switch nn {
+		switch op.nn() {
 		case 0x07:
-			setXToDelay(x)
+			str = "LD V" + u8toh(op.x(), 1) + ", DT"
 		case 0x0A:
-			pauseUntilKeyPressed(x)
+			str = "LD V" + u8toh(op.x(), 1) + ", K"
 		case 0x15:
-			setDelayToX(x)
+			str = "LD DT, V" + u8toh(op.x(), 1)
 		case 0x18:
-			setSoundToX(x)
+			str = "LD ST, V" + u8toh(op.x(), 1)
 		case 0x1E:
-			setIToX(x)
+			str = "ADD I, V" + u8toh(op.x(), 1)
 		case 0x29:
-			setIToSymbol(x)
+			str = "LD F, V" + u8toh(op.x(), 1)
 		case 0x33:
-			binaryCodedDecimal(x)
+			str = "LD B, V" + u8toh(op.x(), 1)
 		case 0x55:
-			setRegistersToMemory(x)
+			str = "LD [I], V" + u8toh(op.x(), 1)
 		case 0x65:
-			setMemoryToRegisters(x)
+			str = "LD V" + u8toh(op.x(), 1) + ", [I]"
 		default:
 			panic("unknown 0xF opcode")
 		}
 	default:
 		panic("unknown opcode")
 	}
+	return str
 }
