@@ -117,8 +117,7 @@ func NewConsole(capacity int, l fyne.Layout) *Console {
 	labels := make([]fyne.CanvasObject, capacity)
 
 	for i := range capacity {
-		label := widget.NewLabel("")
-		label.Theme().Font(fyne.TextStyle{Monospace: true})
+		label := canvas.NewText("", color.RGBA{R: 0, G: 255, B: 0, A: 255})
 		labels[i] = label
 	}
 
@@ -142,10 +141,17 @@ func (o *Console) Prepend(msg string) {
 
 func (o *Console) Refresh() {
 	for i := range o.capacity {
+		text := o.container.Objects[i].(*canvas.Text)
+
 		if value, dirty := o.data[i].Read(); dirty {
-			o.container.Objects[i].(*widget.Label).SetText(value)
+			text.Text = value
 		}
+		text.TextStyle.Bold = false
 	}
+}
+
+func (o *Console) TextObject(i int) *canvas.Text {
+	return o.container.Objects[i].(*canvas.Text)
 }
 
 func (o *Console) Object() fyne.CanvasObject {
@@ -191,9 +197,12 @@ func (e *Emulator) Run() {
 		image,
 	)
 
-	opcodeData := NewConsole(8, layout.NewVBoxLayout())
+	backgroundColor := color.RGBA{R: 0, G: 0, B: 0, A: 255}
+	background := canvas.NewRectangle(backgroundColor)
+
+	opcodeData := NewConsole(22, layout.NewVBoxLayout())
 	opcodeContent := container.New(
-		layout.NewGridWrapLayout(fyne.NewSize(125, (float32)(chip8.Height))),
+		layout.NewGridWrapLayout(fyne.NewSize(125, (float32)(chip8.Height)*10)),
 		opcodeData.Object(),
 	)
 
@@ -249,9 +258,9 @@ func (e *Emulator) Run() {
 
 	box := container.NewBorder(toolbar, registerContent, opcodeContent, cpuContent, imageContent)
 
-	w.SetContent(box)
+	stack := container.NewStack(background, box)
 
-	// w.Resize(fyne.NewSize(float32(chip8.Width*10), float32(chip8.Height*10))) // 10x scale for visibility
+	w.SetContent(stack)
 
 	w.SetFixedSize(true)
 
@@ -304,9 +313,10 @@ func (e *Emulator) Run() {
 			if redraw {
 				for i, val := range cpu.Display() {
 					x, y := i%chip8.Width, i/chip8.Width
-					c := color.Black
+					var c color.Color
+					c = color.Black
 					if val == 1 {
-						c = color.White
+						c = color.RGBA{R: 0, G: 255, B: 0, A: 255}
 					}
 					buffer.Set(x, y, c) // Directly sets pixels in the buffer
 				}
@@ -333,8 +343,10 @@ func (e *Emulator) Run() {
 					image.Refresh()
 				}
 				opcodeData.Refresh()
+				opcodeData.TextObject(0).TextStyle.Bold = true
 				registerData.Refresh()
 				cpuData.Refresh()
+				stack.Refresh()
 			})
 		}
 	})
